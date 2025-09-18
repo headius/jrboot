@@ -3,24 +3,56 @@ require 'jar-dependencies'
 require_jar 'org.springframework.boot', 'spring-boot-starter-web', '3.5.5'
 
 java_import org.springframework.boot.SpringApplication
-java_import org.springframework.boot.autoconfigure.SpringBootApplication
-java_import org.springframework.web.bind.annotation.RestController
 java_import org.springframework.web.bind.annotation.GetMapping
 java_import org.springframework.web.bind.annotation.RequestParam
 
-class Application
-  add_class_annotations(SpringBootApplication => nil, RestController => nil)
+module SpringBoot
+  java_import org.springframework.boot.autoconfigure.SpringBootApplication
 
-  add_method_annotation "hello", GetMapping => {"value" => ["/hello"].to_java(:string)}
-  add_parameter_annotation "hello", [
-    RequestParam => {"value" => "name", "defaultValue" => "Spring Boot"}
-  ]
-  java_signature "java.lang.String hello(java.lang.String)"
-  def hello(name)
-    "Hello from JRuby, #{name}"
+  module StartMethods
+    def start
+      app_class = Application.become_java!
+      SpringApplication.run(app_class, ARGV.to_java(:string))
+    end
+  end
+
+  def self.included(mod)
+    mod.extend StartMethods
+    mod.add_class_annotations(SpringBootApplication => nil)
   end
 end
 
-app_class = Application.become_java!
-context = SpringApplication.run(app_class, ARGV.to_java(:string))
+module RestController
+  java_import org.springframework.web.bind.annotation.RestController
 
+  module BindMethods
+    def get(sig, path = nil, **params)
+      signature = JRuby::JavaSignature.parse sig
+      name = signature.name
+      path ||= "/#{name}"
+      params = params.to_h { |key, default|
+        [RequestParam, { "value" => key.to_s, "defaultValue" => default.to_s }]
+      }
+
+      add_method_signature(name, signature.types)
+      add_method_annotation name, GetMapping => {"value" => [path].to_java(:string)}
+      add_parameter_annotation name, [params]
+    end
+  end
+
+  def self.included(mod)
+    mod.extend BindMethods
+    mod.add_class_annotations(RestController => nil)
+  end
+end
+
+class HelloApp
+  include SpringBoot, RestController
+
+  get("java.lang.String hello(java.lang.String)", name: "World")
+  def hello(name)
+    "Hello from JRuby, #{name}!"
+  end
+
+  start
+end
